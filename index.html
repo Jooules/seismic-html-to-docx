@@ -610,6 +610,19 @@
         setTimeout(autoPaste, 500);
       }, []);
  
+      // Silently parse whenever inputText changes so the filename bar appears immediately
+      useEffect(() => {
+        const trimmed = inputText.trim();
+        if (!trimmed) { setDocContent(null); setSections([]); setPageTitle(''); return; }
+        try {
+          const content = parseSeismicHtml(trimmed);
+          if (content.length === 0) return;
+          setDocContent(content);
+          setSections(extractSections(content));
+          setPageTitle(prev => prev || detectPageTitle(content));
+        } catch {}
+      }, [inputText]);
+ 
       const parseInput = useCallback(() => {
         try {
           const trimmed = inputText.trim();
