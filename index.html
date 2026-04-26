@@ -1,3 +1,5 @@
+Copy
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -10,19 +12,17 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <style>
-    /* Ensure icons display properly */
     .lucide-icon { display: inline-block; vertical-align: middle; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-  
+ 
   <script type="text/babel">
-    const { useState, useCallback, useMemo, useEffect } = React;
-    
-    // Simple icon components using Lucide
+    const { useState, useCallback, useMemo, useEffect, useRef } = React;
+ 
     const Icon = ({ name, className = "w-4 h-4" }) => {
-      const ref = React.useRef(null);
+      const ref = useRef(null);
       useEffect(() => {
         if (ref.current && lucide && lucide[name]) {
           ref.current.innerHTML = '';
@@ -33,32 +33,109 @@
       }, [name, className]);
       return <span ref={ref} className="inline-flex items-center" />;
     };
-    
-    // Parse Seismic HTML into structured content
+ 
+    // ─── Markdown converter ───────────────────────────────────────────────────
+ 
+    const contentToMarkdown = (content) => {
+      const lines = [];
+ 
+      const renderParsedContent = (parsedContent) => {
+        if (!parsedContent) return;
+        parsedContent.forEach(el => {
+          if (el.type === 'h1') lines.push(`# ${el.content}\n`);
+          else if (el.type === 'h2') lines.push(`## ${el.content}\n`);
+          else if (el.type === 'h3') lines.push(`### ${el.content}\n`);
+          else if (el.type === 'listitem') {
+            const indent = '  '.repeat((el.level || 1) - 1);
+            lines.push(`${indent}- ${el.content}`);
+          }
+          else if (el.type === 'bold') lines.push(`**${el.content}**`);
+          else if (el.type === 'italic') lines.push(`_${el.content}_`);
+          else if (el.type === 'bolditalic') lines.push(`**_${el.content}_**`);
+          else if (el.type === 'break') lines.push('');
+          else if (el.content) lines.push(el.content);
+        });
+      };
+ 
+      const renderTable = (tableData) => {
+        if (!tableData || tableData.length === 0) return;
+        tableData.forEach((row, rIdx) => {
+          const cells = row.map(cell => {
+            const text = typeof cell === 'object' ? cell.content : cell;
+            return text.replace(/\n+/g, ' ').replace(/\|/g, '\\|');
+          });
+          lines.push('| ' + cells.join(' | ') + ' |');
+          if (rIdx === 0) {
+            lines.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+          }
+        });
+        lines.push('');
+      };
+ 
+      const renderItem = (item) => {
+        switch (item.type) {
+          case 'divider':
+            if (item.title) { lines.push(''); lines.push(`# ${item.title}`); lines.push(''); }
+            break;
+          case 'accordion':
+            lines.push(''); lines.push(`## ${item.title}`); lines.push('');
+            item.children?.forEach(child => renderItem(child));
+            break;
+          case 'paragraph':
+            if (item.parsedContent?.length) renderParsedContent(item.parsedContent);
+            else if (item.content) lines.push(item.content);
+            lines.push('');
+            break;
+          case 'table':
+            renderTable(item.table);
+            break;
+        }
+      };
+ 
+      content.forEach(item => renderItem(item));
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    };
+ 
+    const slugify = (text) =>
+      text.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+ 
+    const detectPageTitle = (content) => {
+      for (const item of content) {
+        if (item.type === 'divider' && item.title) return item.title;
+        if (item.type === 'paragraph' && item.parsedContent) {
+          for (const el of item.parsedContent) {
+            if (el.type === 'h1' && el.content) return el.content;
+          }
+        }
+        if (item.type === 'accordion' && item.title) return item.title;
+      }
+      return 'Untitled Page';
+    };
+ 
+    // ─── Seismic HTML parser (unchanged) ─────────────────────────────────────
+ 
     const parseSeismicHtml = (html) => {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
       const content = [];
-      
       const widgets = doc.querySelectorAll('[data-testid]');
       const accordionMap = new Map();
       const widgetToAccordion = new Map();
-      
+ 
       widgets.forEach((widget) => {
         const testId = widget.getAttribute('data-testid');
-        
         if (testId === 'page.accordion') {
           let title = 'Untitled Section';
           const virtualTextEl = widget.querySelector('.seismic-page-divider-view-text-virtual');
-          if (virtualTextEl && virtualTextEl.textContent.trim()) {
-            title = virtualTextEl.textContent.trim();
-          } else {
+          if (virtualTextEl && virtualTextEl.textContent.trim()) title = virtualTextEl.textContent.trim();
+          else {
             const titleEl = widget.querySelector('.seismic-page-divider-view-text');
-            if (titleEl && titleEl.textContent.trim()) {
-              title = titleEl.textContent.trim();
-            }
+            if (titleEl && titleEl.textContent.trim()) title = titleEl.textContent.trim();
           }
-          
           const headerEl = widget.querySelector('.seismic-page-divider-view');
           let level = 2;
           if (headerEl) {
@@ -66,72 +143,57 @@
             else if (headerEl.classList.contains('__heading2')) level = 2;
             else if (headerEl.classList.contains('__heading3')) level = 3;
           }
-          
           accordionMap.set(widget, { title, level, children: [] });
         } else {
           const parentAccordion = widget.closest('[data-testid="page.accordion"]');
-          if (parentAccordion && accordionMap.has(parentAccordion)) {
-            widgetToAccordion.set(widget, parentAccordion);
-          }
+          if (parentAccordion && accordionMap.has(parentAccordion)) widgetToAccordion.set(widget, parentAccordion);
         }
       });
-      
+ 
       widgets.forEach((widget, idx) => {
         const testId = widget.getAttribute('data-testid');
         if (testId === 'seismic-page-richContent') return;
-        
         const parentAccordion = widgetToAccordion.get(widget);
-        
+ 
         if (testId === 'page.paragraph') {
           const richContent = widget.querySelector('.seismic-page-RichTextView-content');
           if (richContent) {
             const parsed = parseParagraphContent(richContent);
-            if (parentAccordion) {
-              accordionMap.get(parentAccordion).children.push({ type: 'paragraph', id: `${idx}`, ...parsed });
-            } else {
-              content.push({ type: 'paragraph', id: idx, ...parsed });
-            }
+            if (parentAccordion) accordionMap.get(parentAccordion).children.push({ type: 'paragraph', id: `${idx}`, ...parsed });
+            else content.push({ type: 'paragraph', id: idx, ...parsed });
           }
-        } 
-        else if (testId === 'page.table') {
+        } else if (testId === 'page.table') {
           const table = widget.querySelector('table');
           if (table) {
             const tableData = parseTable(table);
-            if (parentAccordion) {
-              accordionMap.get(parentAccordion).children.push({ type: 'table', id: `${idx}`, table: tableData });
-            } else {
-              content.push({ type: 'table', id: idx, table: tableData });
-            }
+            if (parentAccordion) accordionMap.get(parentAccordion).children.push({ type: 'table', id: `${idx}`, table: tableData });
+            else content.push({ type: 'table', id: idx, table: tableData });
           }
-        }
-        else if (testId === 'page.accordion') {
+        } else if (testId === 'page.accordion') {
           const accordionData = accordionMap.get(widget);
           content.push({ type: 'accordion', id: idx, title: accordionData.title, level: accordionData.level, children: accordionData.children });
-        }
-        else if (testId === 'page.divider') {
+        } else if (testId === 'page.divider') {
           const titleEl = widget.querySelector('.seismic-page-divider-view-text');
           const title = titleEl ? titleEl.textContent.trim() : '';
-          
           const headerEl = widget.querySelector('.seismic-page-divider-view');
           let level = 2;
           if (headerEl) {
             if (headerEl.classList.contains('__heading1')) level = 1;
             else if (headerEl.classList.contains('__heading3')) level = 3;
           }
-          
           content.push({ type: 'divider', id: idx, title, level });
         }
       });
-      
+ 
       return content;
     };
-
+ 
     const parseParagraphContent = (element) => {
       const results = [];
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = element.innerHTML;
       const capturedTexts = new Set();
-      
+ 
       const headingData = [];
       tempDiv.querySelectorAll('h1, h2, h3').forEach(heading => {
         const tagName = heading.tagName.toLowerCase();
@@ -140,28 +202,20 @@
         headingData.push({ type: tagName, content: text, element: heading });
         capturedTexts.add(text);
       });
-      
+ 
       tempDiv.querySelectorAll('span[style*="font-size"]').forEach(span => {
         const fontSize = span.style.fontSize;
         const size = parseInt(fontSize);
         const text = span.textContent.trim();
         if (!text || capturedTexts.has(text)) return;
-        
-        if (size >= 28) {
-          headingData.push({ type: 'h1', content: text, element: span });
-          capturedTexts.add(text);
-        } else if (size >= 20) {
-          headingData.push({ type: 'h2', content: text, element: span });
-          capturedTexts.add(text);
-        } else if (size >= 16) {
+        if (size >= 28) { headingData.push({ type: 'h1', content: text, element: span }); capturedTexts.add(text); }
+        else if (size >= 20) { headingData.push({ type: 'h2', content: text, element: span }); capturedTexts.add(text); }
+        else if (size >= 16) {
           const isBold = span.querySelector('b, strong') || span.closest('b, strong') || span.innerHTML.includes('<b>');
-          if (isBold) {
-            headingData.push({ type: 'h3', content: text, element: span });
-            capturedTexts.add(text);
-          }
+          if (isBold) { headingData.push({ type: 'h3', content: text, element: span }); capturedTexts.add(text); }
         }
       });
-      
+ 
       const listItems = [];
       tempDiv.querySelectorAll('li').forEach(li => {
         let level = 0;
@@ -170,380 +224,193 @@
           if (parent.tagName === 'UL' || parent.tagName === 'OL') level++;
           parent = parent.parentElement;
         }
-        
         const liClone = li.cloneNode(true);
         liClone.querySelectorAll('ul, ol').forEach(el => el.remove());
         const text = liClone.textContent.trim();
-        
         if (text && !capturedTexts.has(text)) {
           let htmlContent = liClone.innerHTML;
-          htmlContent = htmlContent
-            .replace(/<span[^>]*>\s*<\/span>/gi, '')
-            .replace(/<span[^>]*>(.*?)<\/span>/gi, '$1')
-            .replace(/<br\s*\/?>/gi, '')
-            .replace(/&nbsp;/gi, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          htmlContent = htmlContent.replace(/<a[^>]*>(.*?)<\/a>/gi, '$1');
-          htmlContent = htmlContent.replace(/<\/?u>/gi, '');
-          
+          htmlContent = htmlContent.replace(/<span[^>]*>\s*<\/span>/gi, '').replace(/<span[^>]*>(.*?)<\/span>/gi, '$1').replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
+          htmlContent = htmlContent.replace(/<a[^>]*>(.*?)<\/a>/gi, '$1').replace(/<\/?u>/gi, '');
           const hasInlineFormatting = /<(b|strong|i|em)[^>]*>/i.test(htmlContent);
-          
-          listItems.push({ 
-            type: 'listitem', 
-            content: text, 
-            htmlContent: hasInlineFormatting ? htmlContent : null,
-            level: level,
-            element: li 
-          });
+          listItems.push({ type: 'listitem', content: text, htmlContent: hasInlineFormatting ? htmlContent : null, level, element: li });
           capturedTexts.add(text);
         }
       });
-      
+ 
       const textBlocks = [];
-      const allDivs = tempDiv.querySelectorAll('div');
-      
-      allDivs.forEach((div, idx) => {
-        if (div.closest('ul, ol')) return;
-        if (div.closest('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container')) return;
-        
-        const directChildDivs = Array.from(div.children).filter(child => {
-          if (child.tagName !== 'DIV') return false;
-          if (child.closest('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container')) return false;
-          return true;
-        });
+      tempDiv.querySelectorAll('div').forEach((div, idx) => {
+        if (div.closest('ul, ol') || div.closest('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container')) return;
+        const directChildDivs = Array.from(div.children).filter(child => child.tagName === 'DIV' && !child.closest('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container'));
         if (directChildDivs.length > 0) return;
-        
         const clone = div.cloneNode(true);
         clone.querySelectorAll('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container, ul, ol, div').forEach(el => el.remove());
         let text = clone.textContent;
-        
         const isNbspOnly = /^[\s\u00A0]*$/.test(text);
         text = text.trim();
-        
         if (!text || text.length === 0 || isNbspOnly) {
           const hasBr = clone.querySelector('br');
-          if (hasBr || isNbspOnly) {
-            textBlocks.push({ type: 'break', content: '', element: div });
-          }
+          if (hasBr || isNbspOnly) textBlocks.push({ type: 'break', content: '', element: div });
           return;
         }
-        
         if (capturedTexts.has(text)) return;
-        
         let isSubstring = false;
-        for (const captured of capturedTexts) {
-          if (captured.includes(text) && text.length <= captured.length) {
-            isSubstring = true;
-            break;
-          }
-        }
+        for (const captured of capturedTexts) { if (captured.includes(text) && text.length <= captured.length) { isSubstring = true; break; } }
         if (isSubstring) return;
-        
         const htmlClone = div.cloneNode(true);
         htmlClone.querySelectorAll('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container, ul, ol, div').forEach(el => el.remove());
-        
         let htmlContent = htmlClone.innerHTML;
-        htmlContent = htmlContent
-          .replace(/<span[^>]*>\s*<\/span>/gi, '')
-          .replace(/<span[^>]*>(.*?)<\/span>/gi, '$1')
-          .replace(/<br\s*\/?>/gi, '')
-          .replace(/&nbsp;/gi, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        
+        htmlContent = htmlContent.replace(/<span[^>]*>\s*<\/span>/gi, '').replace(/<span[^>]*>(.*?)<\/span>/gi, '$1').replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
         const hasInlineFormatting = /<(b|strong|i|em)[^>]*>/i.test(htmlContent);
-        
         let fontSize = null;
         const fontSpan = div.querySelector('span[style*="font-size"]');
-        if (fontSpan) {
-          const match = fontSpan.style.fontSize.match(/(\d+)/);
-          if (match) fontSize = parseInt(match[1]);
-        }
-        
-        textBlocks.push({ 
-          type: 'text', 
-          content: text, 
-          htmlContent: hasInlineFormatting ? htmlContent : null,
-          element: div, 
-          fontSize 
-        });
+        if (fontSpan) { const match = fontSpan.style.fontSize.match(/(\d+)/); if (match) fontSize = parseInt(match[1]); }
+        textBlocks.push({ type: 'text', content: text, htmlContent: hasInlineFormatting ? htmlContent : null, element: div, fontSize });
         capturedTexts.add(text);
       });
-      
+ 
       const inlineElements = [];
-      Array.from(tempDiv.childNodes).forEach((node, idx) => {
-        if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'DIV') return;
-        if (node.nodeType === Node.ELEMENT_NODE && /^H[1-6]$/.test(node.tagName)) return;
-        if (node.nodeType === Node.ELEMENT_NODE && (node.tagName === 'UL' || node.tagName === 'OL')) return;
-        
-        let text = '';
-        if (node.nodeType === Node.TEXT_NODE) {
-          text = node.textContent.trim();
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          text = node.textContent.trim();
-        }
-        
-        if (!text || /^[\s\u00A0]*$/.test(text)) return;
-        if (capturedTexts.has(text)) return;
-        
+      Array.from(tempDiv.childNodes).forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE && (node.tagName === 'DIV' || /^H[1-6]$/.test(node.tagName) || node.tagName === 'UL' || node.tagName === 'OL')) return;
+        let text = node.nodeType === Node.TEXT_NODE ? node.textContent.trim() : (node.nodeType === Node.ELEMENT_NODE ? node.textContent.trim() : '');
+        if (!text || /^[\s\u00A0]*$/.test(text) || capturedTexts.has(text)) return;
         let isSubstring = false;
-        for (const captured of capturedTexts) {
-          if (captured.includes(text) && text.length <= captured.length) {
-            isSubstring = true;
-            break;
-          }
-        }
+        for (const captured of capturedTexts) { if (captured.includes(text) && text.length <= captured.length) { isSubstring = true; break; } }
         if (isSubstring) return;
-        
-        let isItalic = false;
-        let isBold = false;
-        
+        let isItalic = false, isBold = false;
         if (node.nodeType === Node.ELEMENT_NODE) {
           isItalic = node.tagName === 'I' || node.tagName === 'EM' || node.querySelector('i, em');
           isBold = node.tagName === 'B' || node.tagName === 'STRONG' || node.querySelector('b, strong');
         }
-        
         let textType = 'text';
         if (isBold && isItalic) textType = 'bolditalic';
         else if (isBold) textType = 'bold';
         else if (isItalic) textType = 'italic';
-        
         inlineElements.push({ type: textType, content: text, element: node });
         capturedTexts.add(text);
       });
-      
+ 
       const allContent = [...headingData, ...listItems, ...textBlocks, ...inlineElements];
-      
       allContent.sort((a, b) => {
         const position = a.element.compareDocumentPosition(b.element);
         if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
         if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
         return 0;
       });
-      
-      const finalResults = allContent.map(item => ({
-        type: item.type,
-        content: item.content,
-        htmlContent: item.htmlContent || null,
-        fontSize: item.fontSize || null,
-        level: item.level || null
-      }));
-      
+ 
+      const finalResults = allContent.map(item => ({ type: item.type, content: item.content, htmlContent: item.htmlContent || null, fontSize: item.fontSize || null, level: item.level || null }));
       const deduped = [];
-      finalResults.forEach((el, idx) => {
+      finalResults.forEach((el) => {
         if (el.type === 'break') {
           const prev = deduped[deduped.length - 1];
           if (prev && (prev.type === 'h1' || prev.type === 'h2' || prev.type === 'h3')) return;
-          deduped.push(el);
-          return;
+          deduped.push(el); return;
         }
         if (!el.content || el.content.length === 0) return;
-        const isDupe = deduped.some(d => d.content === el.content);
-        if (!isDupe) deduped.push(el);
+        if (!deduped.some(d => d.content === el.content)) deduped.push(el);
       });
-      
+ 
       return { parsedContent: deduped, content: element.textContent.trim() };
     };
-
+ 
     const parseTable = (table) => {
       const rows = [];
-      const tableRows = table.querySelectorAll('tr');
-      
-      tableRows.forEach(tr => {
+      table.querySelectorAll('tr').forEach(tr => {
         const row = [];
-        const cells = tr.querySelectorAll('td, th');
-        
-        cells.forEach(cell => {
+        tr.querySelectorAll('td, th').forEach(cell => {
           const clone = cell.cloneNode(true);
           clone.querySelectorAll('br').forEach(br => br.replaceWith('\n\n'));
-          
-          const divs = clone.querySelectorAll('div');
-          divs.forEach(div => {
-            const text = div.textContent.trim();
-            if (text) div.insertAdjacentText('beforebegin', '\n\n');
-          });
-          
-          let cellContent = clone.textContent;
-          cellContent = cellContent.replace(/\u00A0+/g, ' ');
-          cellContent = cellContent.replace(/\n\s*\n/g, '\n\n');
-          cellContent = cellContent.replace(/[ \t]+/g, ' ');
-          cellContent = cellContent.split('\n').map(line => line.trim()).join('\n');
-          cellContent = cellContent.trim();
-          
+          clone.querySelectorAll('div').forEach(div => { const text = div.textContent.trim(); if (text) div.insertAdjacentText('beforebegin', '\n\n'); });
+          let cellContent = clone.textContent.replace(/\u00A0+/g, ' ').replace(/\n\s*\n/g, '\n\n').replace(/[ \t]+/g, ' ').split('\n').map(l => l.trim()).join('\n').trim();
           const htmlClone = cell.cloneNode(true);
-          htmlClone.querySelectorAll('br').forEach(br => {
-            const marker = document.createTextNode('\n\n');
-            br.replaceWith(marker);
-          });
-          htmlClone.querySelectorAll('div').forEach(div => {
-            const text = div.textContent.trim();
-            if (text) div.insertAdjacentText('beforebegin', '\n\n');
-          });
-          
-          let htmlContent = htmlClone.innerHTML;
-          htmlContent = htmlContent.replace(/<span[^>]*>(.*?)<\/span>/gi, '$1');
-          htmlContent = htmlContent.replace(/<(\w+)[^>]*>\s*<\/\1>/gi, '');
-          htmlContent = htmlContent.replace(/<\/?div[^>]*>/gi, '');
-          htmlContent = htmlContent.replace(/&nbsp;/gi, ' ');
-          htmlContent = htmlContent.replace(/<a[^>]*>(.*?)<\/a>/gi, '$1');
-          htmlContent = htmlContent.replace(/<\/?u>/gi, '');
-          htmlContent = htmlContent.replace(/\n\s*\n/g, '\n\n');
-          htmlContent = htmlContent.replace(/[ \t]+/g, ' ');
-          htmlContent = htmlContent.split('\n').map(line => line.trim()).join('\n');
-          htmlContent = htmlContent.trim();
-          
+          htmlClone.querySelectorAll('br').forEach(br => br.replaceWith(document.createTextNode('\n\n')));
+          htmlClone.querySelectorAll('div').forEach(div => { const text = div.textContent.trim(); if (text) div.insertAdjacentText('beforebegin', '\n\n'); });
+          let htmlContent = htmlClone.innerHTML.replace(/<span[^>]*>(.*?)<\/span>/gi, '$1').replace(/<(\w+)[^>]*>\s*<\/\1>/gi, '').replace(/<\/?div[^>]*>/gi, '').replace(/&nbsp;/gi, ' ').replace(/<a[^>]*>(.*?)<\/a>/gi, '$1').replace(/<\/?u>/gi, '').replace(/\n\s*\n/g, '\n\n').replace(/[ \t]+/g, ' ').split('\n').map(l => l.trim()).join('\n').trim();
           const hasFormatting = /<(b|strong|i|em)[^>]*>/i.test(htmlContent);
-          
-          row.push({
-            content: cellContent,
-            htmlContent: hasFormatting ? htmlContent : null
-          });
+          row.push({ content: cellContent, htmlContent: hasFormatting ? htmlContent : null });
         });
-        
         if (row.length > 0) rows.push(row);
       });
-      
       return rows;
     };
-
+ 
     const extractSections = (content) => {
       const sections = [];
       let sectionId = 0;
-      
       content.forEach((item, idx) => {
-        if (item.type === 'divider' && item.title) {
-          sections.push({ id: sectionId++, title: item.title, level: 1, contentIndex: idx, type: 'divider', selected: true });
-        }
-        else if (item.type === 'accordion') {
-          sections.push({ id: sectionId++, title: item.title, level: 2, contentIndex: idx, type: 'accordion', selected: true });
-        }
+        if (item.type === 'divider' && item.title) sections.push({ id: sectionId++, title: item.title, level: 1, contentIndex: idx, type: 'divider', selected: true });
+        else if (item.type === 'accordion') sections.push({ id: sectionId++, title: item.title, level: 2, contentIndex: idx, type: 'accordion', selected: true });
         else if (item.type === 'paragraph' && item.parsedContent) {
           item.parsedContent.forEach((el, elIdx) => {
             if (['h1', 'h2', 'h3'].includes(el.type)) {
-              const level = parseInt(el.type.charAt(1));
-              sections.push({ id: sectionId++, title: el.content, level, contentIndex: idx, type: 'paragraph-header', elementIndex: elIdx, selected: true });
+              sections.push({ id: sectionId++, title: el.content, level: parseInt(el.type.charAt(1)), contentIndex: idx, type: 'paragraph-header', elementIndex: elIdx, selected: true });
             }
           });
         }
       });
-      
       return sections;
     };
-
+ 
     const generateHtmlForWord = (content) => {
       const headerStyles = {
         h1: "mso-style-name:'Heading 1'; mso-outline-level:1; font-size:28px; color:#1a202c; margin:24px 0 12px 0; font-weight:bold;",
         h2: "mso-style-name:'Heading 2'; mso-outline-level:2; font-size:22px; color:#2d3748; margin:20px 0 10px 0; font-weight:bold;",
         h3: "mso-style-name:'Heading 3'; mso-outline-level:3; font-size:16px; color:#4a5568; margin:16px 0 8px 0; font-weight:bold;",
       };
-      
       const tableStyle = `style="width:100%; table-layout:fixed; border-collapse:collapse; margin:12px 0;"`;
       const cellStyle = (isHeader) => `style="border:1px solid #333; padding:8px; word-wrap:break-word;${isHeader ? ' font-weight:bold; background-color:#f0f0f0;' : ''}"`;
       const spacerParagraph = '<p style="mso-style-name:\'Normal\'; margin:0; line-height:100%;"><span style="font-size:11pt;">&nbsp;</span></p>';
-      
-      const endsWithBreak = (parsedContent) => {
-        if (!parsedContent || parsedContent.length === 0) return false;
-        return parsedContent[parsedContent.length - 1].type === 'break';
-      };
-      
-      const startsWithHeading = (parsedContent) => {
-        if (!parsedContent || parsedContent.length === 0) return false;
-        const firstType = parsedContent[0].type;
-        return ['h1', 'h2', 'h3'].includes(firstType);
-      };
-      
+      const endsWithBreak = (pc) => pc && pc.length > 0 && pc[pc.length - 1].type === 'break';
+      const startsWithHeading = (pc) => pc && pc.length > 0 && ['h1','h2','h3'].includes(pc[0].type);
+ 
       const renderParsedContent = (parsedContent) => {
-        let html = '';
-        let currentListLevel = 0;
-        const isListItem = (type) => type === 'listitem';
-        
-        parsedContent.forEach((el, idx) => {
+        let html = ''; let currentListLevel = 0;
+        parsedContent.forEach((el) => {
           const elLevel = el.level || 1;
-          
-          if (isListItem(el.type)) {
-            while (currentListLevel < elLevel) {
-              const indent = currentListLevel * 20;
-              html += `<ul style="margin:8px 0 8px ${20 + indent}px;">`;
-              currentListLevel++;
-            }
-            while (currentListLevel > elLevel) {
-              html += '</ul>';
-              currentListLevel--;
-            }
-            const liContent = el.htmlContent || el.content;
-            html += `<li style="margin:4px 0;">${liContent}</li>`;
+          if (el.type === 'listitem') {
+            while (currentListLevel < elLevel) { html += `<ul style="margin:8px 0 8px ${20 + currentListLevel * 20}px;">`; currentListLevel++; }
+            while (currentListLevel > elLevel) { html += '</ul>'; currentListLevel--; }
+            html += `<li style="margin:4px 0;">${el.htmlContent || el.content}</li>`;
           } else {
-            while (currentListLevel > 0) {
-              html += '</ul>';
-              currentListLevel--;
-            }
-            
+            while (currentListLevel > 0) { html += '</ul>'; currentListLevel--; }
             const fontStyle = el.fontSize ? `font-size:${el.fontSize}pt;` : '';
-            
             if (el.type === 'h1') html += `<h1 style="${headerStyles.h1}">${el.content}</h1>`;
             else if (el.type === 'h2') html += `<h2 style="${headerStyles.h2}">${el.content}</h2>`;
             else if (el.type === 'h3') html += `<h3 style="${headerStyles.h3}">${el.content}</h3>`;
             else if (el.type === 'break') html += spacerParagraph;
-            else if (el.type === 'bold') html += `<p style="margin:0 0 0 0;${fontStyle}"><strong>${el.content}</strong></p>`;
-            else if (el.type === 'italic') html += `<p style="margin:0 0 0 0;${fontStyle}"><em>${el.content}</em></p>`;
-            else if (el.type === 'bolditalic') html += `<p style="margin:0 0 0 0;${fontStyle}"><strong><em>${el.content}</em></strong></p>`;
-            else {
-              const displayContent = el.htmlContent || el.content;
-              html += `<p style="margin:0 0 0 0;${fontStyle}">${displayContent}</p>`;
-            }
+            else if (el.type === 'bold') html += `<p style="margin:0;${fontStyle}"><strong>${el.content}</strong></p>`;
+            else if (el.type === 'italic') html += `<p style="margin:0;${fontStyle}"><em>${el.content}</em></p>`;
+            else if (el.type === 'bolditalic') html += `<p style="margin:0;${fontStyle}"><strong><em>${el.content}</em></strong></p>`;
+            else html += `<p style="margin:0;${fontStyle}">${el.htmlContent || el.content}</p>`;
           }
         });
-        
-        while (currentListLevel > 0) {
-          html += '</ul>';
-          currentListLevel--;
-        }
-        
+        while (currentListLevel > 0) { html += '</ul>'; currentListLevel--; }
         return html;
       };
-      
+ 
       const renderTable = (tableData) => {
         if (!tableData?.length) return '';
         let html = `<table ${tableStyle}>`;
         tableData.forEach((row, rIdx) => {
           html += '<tr>';
           row.forEach(cell => {
-            const cellText = typeof cell === 'object' ? cell.content : cell;
-            const cellHtmlContent = typeof cell === 'object' ? cell.htmlContent : null;
-            const sourceContent = cellHtmlContent || cellText;
-            
-            const cellHtml = sourceContent
-              .split(/\n\n+/)
-              .map(para => para.trim())
-              .filter(para => para.length > 0)
-              .map(para => `<p style="margin:4px 0;">${para}</p>`)
-              .join('');
-            html += `<td ${cellStyle(rIdx === 0)}>${cellHtml || sourceContent}</td>`;
+            const src = (typeof cell === 'object' ? cell.htmlContent : null) || (typeof cell === 'object' ? cell.content : cell);
+            const cellHtml = src.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0).map(p => `<p style="margin:4px 0;">${p}</p>`).join('');
+            html += `<td ${cellStyle(rIdx === 0)}>${cellHtml || src}</td>`;
           });
           html += '</tr>';
         });
         return html + '</table>';
       };
-      
+ 
       const renderContent = (item) => {
         let html = '';
         switch (item.type) {
           case 'paragraph':
-            if (item.parsedContent?.length) {
-              html += renderParsedContent(item.parsedContent);
-            } else if (item.content) {
-              html += `<p style="margin:6px 0;">${item.content}</p>`;
-            }
+            if (item.parsedContent?.length) html += renderParsedContent(item.parsedContent);
+            else if (item.content) html += `<p style="margin:6px 0;">${item.content}</p>`;
             break;
-          case 'table':
-            html += renderTable(item.table);
-            break;
-          case 'divider':
-            if (item.title) {
-              html += `<h1 style="${headerStyles.h1}">${item.title}</h1>`;
-            }
-            break;
+          case 'table': html += renderTable(item.table); break;
+          case 'divider': if (item.title) html += `<h1 style="${headerStyles.h1}">${item.title}</h1>`; break;
           case 'accordion':
             html += `<h2 style="${headerStyles.h2}">${item.title}</h2>`;
             item.children?.forEach(child => { html += renderContent(child); });
@@ -551,7 +418,7 @@
         }
         return html;
       };
-      
+ 
       const needsSpacerBetween = (prevItem, currentItem) => {
         if (!prevItem) return false;
         if (currentItem.type === 'divider' || currentItem.type === 'accordion') return false;
@@ -562,21 +429,128 @@
         if (prevItem.type === 'table' && currentItem.type === 'table') return true;
         return false;
       };
-      
+ 
       let fullHtml = `<html><head><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;max-width:100%;}</style></head><body>`;
-      
       content.forEach((item, idx) => {
-        const prevItem = idx > 0 ? content[idx - 1] : null;
-        if (needsSpacerBetween(prevItem, item)) {
-          fullHtml += spacerParagraph;
-        }
+        if (needsSpacerBetween(idx > 0 ? content[idx - 1] : null, item)) fullHtml += spacerParagraph;
         fullHtml += renderContent(item);
       });
-      
       fullHtml += '</body></html>';
       return fullHtml;
     };
-
+ 
+    // ─── Settings storage ─────────────────────────────────────────────────────
+ 
+    const STORAGE_KEY = 'seismic_sharepoint_webhook';
+ 
+    const loadWebhookUrl = () => {
+      try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
+    };
+ 
+    const saveWebhookUrl = (url) => {
+      try { localStorage.setItem(STORAGE_KEY, url); return true; } catch { return false; }
+    };
+ 
+    const clearWebhookUrl = () => {
+      try { localStorage.removeItem(STORAGE_KEY); return true; } catch { return false; }
+    };
+ 
+    // ─── Settings tab ─────────────────────────────────────────────────────────
+ 
+    const SettingsTab = ({ onUrlSaved }) => {
+      const [urlInput, setUrlInput] = useState(loadWebhookUrl);
+      const [saved, setSaved] = useState(!!loadWebhookUrl());
+      const [settingsStatus, setSettingsStatus] = useState({ type: '', message: '' });
+ 
+      const handleSave = () => {
+        const trimmed = urlInput.trim();
+        if (!trimmed) { setSettingsStatus({ type: 'error', message: 'Please paste a Power Automate webhook URL first.' }); return; }
+        if (!trimmed.startsWith('https://')) { setSettingsStatus({ type: 'error', message: 'URL must start with https://' }); return; }
+        if (saveWebhookUrl(trimmed)) {
+          setSaved(true);
+          setSettingsStatus({ type: 'success', message: 'Webhook URL saved to this browser.' });
+          onUrlSaved && onUrlSaved();
+        } else {
+          setSettingsStatus({ type: 'error', message: 'Failed to save — localStorage may be blocked.' });
+        }
+      };
+ 
+      const handleClear = () => {
+        clearWebhookUrl();
+        setUrlInput('');
+        setSaved(false);
+        setSettingsStatus({ type: 'success', message: 'Webhook URL cleared.' });
+        onUrlSaved && onUrlSaved();
+      };
+ 
+      return (
+        <div className="p-4 space-y-4">
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+            <strong>One-time setup:</strong> Paste your Power Automate webhook URL below. It will be stored in this browser only and never uploaded anywhere.
+          </div>
+ 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Power Automate webhook URL</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={urlInput}
+                onChange={e => setUrlInput(e.target.value)}
+                placeholder="https://prod-xx.westeurope.logic.azure.com/workflows/..."
+                className="flex-1 p-2 border border-gray-300 rounded text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+ 
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">
+              <Icon name="Save" className="w-4 h-4" /> Save URL
+            </button>
+            {saved && (
+              <button onClick={handleClear} className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition text-sm">
+                <Icon name="Trash2" className="w-4 h-4" /> Clear
+              </button>
+            )}
+          </div>
+ 
+          {saved && (
+            <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">
+              <Icon name="CheckCircle" className="w-4 h-4" />
+              Webhook URL is saved — "Save to SharePoint" is ready to use.
+            </div>
+          )}
+ 
+          {!saved && (
+            <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
+              <Icon name="AlertTriangle" className="w-4 h-4" />
+              No webhook URL saved — "Save to SharePoint" will not work until this is set.
+            </div>
+          )}
+ 
+          {settingsStatus.message && (
+            <div className={`flex items-center gap-2 p-3 rounded text-sm ${settingsStatus.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              <Icon name={settingsStatus.type === 'error' ? 'AlertCircle' : 'CheckCircle'} className="w-4 h-4" />
+              {settingsStatus.message}
+            </div>
+          )}
+ 
+          <div className="border-t pt-4 mt-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Power Automate flow — expected JSON payload:</p>
+            <pre className="text-xs bg-gray-50 border rounded p-3 overflow-x-auto text-gray-700">{`{
+  "pageTitle": "Advanced Parts – Dealer Overview",
+  "fileName": "advanced-parts-dealer-overview.md",
+  "content": "# Advanced Parts...",
+  "exportedBy": "browser",
+  "exportedAt": "2026-04-26T10:32:00Z"
+}`}</pre>
+            <p className="text-xs text-gray-500 mt-2">Your flow should use <code>fileName</code> as the file name and <code>content</code> as the file body when writing to SharePoint.</p>
+          </div>
+        </div>
+      );
+    };
+ 
+    // ─── Main component ───────────────────────────────────────────────────────
+ 
     function SeismicConverter() {
       const [inputText, setInputText] = useState('');
       const [docContent, setDocContent] = useState(null);
@@ -584,8 +558,10 @@
       const [showPreview, setShowPreview] = useState(false);
       const [activeTab, setActiveTab] = useState('input');
       const [status, setStatus] = useState({ type: '', message: '' });
-
-      // Auto-paste from clipboard on page load
+      const [pageTitle, setPageTitle] = useState('');
+      const [isSaving, setIsSaving] = useState(false);
+      const [hasWebhook, setHasWebhook] = useState(!!loadWebhookUrl());
+ 
       useEffect(() => {
         const autoPaste = async () => {
           try {
@@ -594,102 +570,58 @@
               setInputText(text);
               setStatus({ type: 'success', message: 'Content auto-pasted from clipboard!' });
             }
-          } catch (err) {
-            // Clipboard access denied or empty - that's fine
-          }
+          } catch {}
         };
-        
-        // Small delay to ensure page is ready
         setTimeout(autoPaste, 500);
       }, []);
-
+ 
       const parseInput = useCallback(() => {
         try {
           const trimmed = inputText.trim();
-          if (!trimmed) {
-            setStatus({ type: 'error', message: 'Please paste Seismic HTML content' });
-            return null;
-          }
-          
+          if (!trimmed) { setStatus({ type: 'error', message: 'Please paste Seismic HTML content' }); return null; }
           const content = parseSeismicHtml(trimmed);
-          
-          if (content.length === 0) {
-            setStatus({ type: 'error', message: 'No content found. Make sure you copied the Seismic article HTML.' });
-            return null;
-          }
-          
+          if (content.length === 0) { setStatus({ type: 'error', message: 'No content found. Make sure you copied the Seismic article HTML.' }); return null; }
           setDocContent(content);
           const extractedSections = extractSections(content);
           setSections(extractedSections);
-          
+          const detected = detectPageTitle(content);
+          setPageTitle(detected);
           const tableCount = content.filter(c => c.type === 'table').length;
           setStatus({ type: 'success', message: `Parsed ${content.length} blocks (${tableCount} tables)` });
           return content;
         } catch (err) {
           setStatus({ type: 'error', message: 'Error parsing content: ' + err.message });
-          setDocContent(null);
-          setSections([]);
-          return null;
+          setDocContent(null); setSections([]); return null;
         }
       }, [inputText]);
-
+ 
       const toggleSection = useCallback((sectionId) => {
         setSections(prev => {
           const updated = [...prev];
           const idx = updated.findIndex(s => s.id === sectionId);
           if (idx === -1) return prev;
-          
           const section = updated[idx];
           const newSelected = !section.selected;
           updated[idx] = { ...section, selected: newSelected };
-          
-          if (!newSelected) {
-            for (let i = idx + 1; i < updated.length; i++) {
-              if (updated[i].level > section.level) {
-                updated[i] = { ...updated[i], selected: false };
-              } else break;
-            }
-          }
-          
-          if (newSelected) {
-            for (let i = idx - 1; i >= 0; i--) {
-              if (updated[i].level < section.level) {
-                updated[i] = { ...updated[i], selected: true };
-                if (updated[i].level === 1) break;
-              }
-            }
-          }
-          
+          if (!newSelected) { for (let i = idx + 1; i < updated.length; i++) { if (updated[i].level > section.level) updated[i] = { ...updated[i], selected: false }; else break; } }
+          if (newSelected) { for (let i = idx - 1; i >= 0; i--) { if (updated[i].level < section.level) { updated[i] = { ...updated[i], selected: true }; if (updated[i].level === 1) break; } } }
           return updated;
         });
       }, []);
-
+ 
       const selectAll = useCallback(() => setSections(prev => prev.map(s => ({ ...s, selected: true }))), []);
       const deselectAll = useCallback(() => setSections(prev => prev.map(s => ({ ...s, selected: false }))), []);
-
+ 
       const getFilteredContent = useCallback(() => {
         if (!docContent) return null;
         if (sections.length === 0) return docContent;
-        
         const sectionsByContentIndex = new Map();
-        sections.forEach(s => {
-          sectionsByContentIndex.set(s.contentIndex, s);
-        });
-        
+        sections.forEach(s => sectionsByContentIndex.set(s.contentIndex, s));
         const getOwningSection = (contentIdx) => {
-          if (sectionsByContentIndex.has(contentIdx)) {
-            return sectionsByContentIndex.get(contentIdx);
-          }
-          let owningSection = null;
-          for (let i = contentIdx - 1; i >= 0; i--) {
-            if (sectionsByContentIndex.has(i)) {
-              owningSection = sectionsByContentIndex.get(i);
-              break;
-            }
-          }
-          return owningSection;
+          if (sectionsByContentIndex.has(contentIdx)) return sectionsByContentIndex.get(contentIdx);
+          for (let i = contentIdx - 1; i >= 0; i--) { if (sectionsByContentIndex.has(i)) return sectionsByContentIndex.get(i); }
+          return null;
         };
-        
         return docContent.filter((item, idx) => {
           const asSection = sectionsByContentIndex.get(idx);
           if (asSection) return asSection.selected;
@@ -698,83 +630,103 @@
           return owner.selected;
         });
       }, [docContent, sections]);
-
+ 
       const handlePreview = useCallback(() => {
         const content = docContent || parseInput();
-        if (content) {
-          setShowPreview(true);
-          setActiveTab('preview');
-        }
+        if (content) { setShowPreview(true); setActiveTab('preview'); }
       }, [docContent, parseInput]);
-
+ 
       const handleClear = useCallback(() => {
-        setInputText('');
-        setDocContent(null);
-        setSections([]);
-        setShowPreview(false);
-        setActiveTab('input');
-        setStatus({ type: '', message: '' });
+        setInputText(''); setDocContent(null); setSections([]); setShowPreview(false);
+        setActiveTab('input'); setStatus({ type: '', message: '' }); setPageTitle('');
       }, []);
-
+ 
       const handleCopyForWord = useCallback(() => {
         let content = getFilteredContent();
-        if (!content) {
-          content = parseInput();
-          if (!content) return;
-        }
-        
+        if (!content) { content = parseInput(); if (!content) return; }
         const html = generateHtmlForWord(content);
         const blob = new Blob([html], { type: 'text/html' });
-        const clipboardItem = new ClipboardItem({ 'text/html': blob });
-        
-        navigator.clipboard.write([clipboardItem]).then(() => {
+        navigator.clipboard.write([new ClipboardItem({ 'text/html': blob })]).then(() => {
           setStatus({ type: 'success', message: 'Copied! Paste directly into Word (Ctrl+V / Cmd+V)' });
         }).catch(() => {
           navigator.clipboard.writeText(html).then(() => {
             setStatus({ type: 'success', message: 'Copied as HTML. Use Paste Special > HTML in Word.' });
-          }).catch(err => {
-            setStatus({ type: 'error', message: 'Failed to copy: ' + err.message });
-          });
+          }).catch(err => setStatus({ type: 'error', message: 'Failed to copy: ' + err.message }));
         });
       }, [getFilteredContent, parseInput]);
-
+ 
+      const handleSaveToSharePoint = useCallback(async () => {
+        const webhookUrl = loadWebhookUrl();
+        if (!webhookUrl) {
+          setStatus({ type: 'error', message: 'No webhook URL saved. Go to Settings and paste your Power Automate URL first.' });
+          setActiveTab('settings');
+          return;
+        }
+ 
+        let content = getFilteredContent();
+        if (!content) { content = parseInput(); if (!content) return; }
+ 
+        if (!pageTitle.trim()) {
+          setStatus({ type: 'error', message: 'Please enter a page title before saving.' });
+          return;
+        }
+ 
+        const markdown = contentToMarkdown(content);
+        const fileName = slugify(pageTitle.trim()) + '.md';
+ 
+        const payload = {
+          pageTitle: pageTitle.trim(),
+          fileName,
+          content: markdown,
+          exportedBy: 'browser',
+          exportedAt: new Date().toISOString(),
+        };
+ 
+        setIsSaving(true);
+        setStatus({ type: '', message: '' });
+ 
+        try {
+          const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+ 
+          if (response.ok || response.status === 202) {
+            setStatus({ type: 'success', message: `Saved to SharePoint as "${fileName}"` });
+          } else {
+            setStatus({ type: 'error', message: `Power Automate returned status ${response.status}. Check your flow.` });
+          }
+        } catch (err) {
+          setStatus({ type: 'error', message: 'Could not reach Power Automate. Check the webhook URL in Settings.' });
+        } finally {
+          setIsSaving(false);
+        }
+      }, [getFilteredContent, parseInput, pageTitle]);
+ 
       const filteredContent = useMemo(() => getFilteredContent(), [getFilteredContent]);
-
+ 
       const renderPreview = () => {
         const content = filteredContent || docContent;
         if (!content || !showPreview) return null;
-        
         return (
           <div className="p-4 bg-white rounded border max-h-96 overflow-y-auto">
             <h3 className="font-bold text-lg mb-3 border-b pb-2">Document Preview ({content.length} items)</h3>
             {content.map((item, idx) => (
               <div key={idx} className="mb-3">
-                {item.type === 'divider' && item.title && (
-                  <div className="mt-4">
-                    <h1 className="text-2xl font-bold text-gray-900 my-3">{item.title}</h1>
-                  </div>
-                )}
+                {item.type === 'divider' && item.title && <h1 className="text-2xl font-bold text-gray-900 my-3">{item.title}</h1>}
                 {item.type === 'paragraph' && (
                   <div className="text-sm">
                     {item.parsedContent?.map((el, elIdx) => {
                       if (el.type === 'h1') return <h1 key={elIdx} className="text-2xl font-bold text-gray-900 my-3">{el.content}</h1>;
                       if (el.type === 'h2') return <h2 key={elIdx} className="text-xl font-bold text-gray-800 my-2">{el.content}</h2>;
                       if (el.type === 'h3') return <h3 key={elIdx} className="text-lg font-bold text-gray-700 my-2">{el.content}</h3>;
-                      if (el.type === 'listitem') {
-                        const indent = ((el.level || 1) - 1) * 16;
-                        if (el.htmlContent) {
-                          return <li key={elIdx} className="ml-4" style={{ marginLeft: `${16 + indent}px` }} dangerouslySetInnerHTML={{ __html: el.htmlContent }} />;
-                        }
-                        return <li key={elIdx} className="ml-4" style={{ marginLeft: `${16 + indent}px` }}>{el.content}</li>;
-                      }
+                      if (el.type === 'listitem') { const indent = ((el.level || 1) - 1) * 16; return el.htmlContent ? <li key={elIdx} style={{ marginLeft: `${16 + indent}px` }} dangerouslySetInnerHTML={{ __html: el.htmlContent }} /> : <li key={elIdx} style={{ marginLeft: `${16 + indent}px` }}>{el.content}</li>; }
                       if (el.type === 'bold') return <p key={elIdx} className="font-bold">{el.content}</p>;
                       if (el.type === 'italic') return <p key={elIdx} className="italic">{el.content}</p>;
                       if (el.type === 'bolditalic') return <p key={elIdx} className="font-bold italic">{el.content}</p>;
                       if (el.type === 'break') return <div key={elIdx} className="h-4"></div>;
-                      if (el.htmlContent) {
-                        return <p key={elIdx} className="text-gray-700" dangerouslySetInnerHTML={{ __html: el.htmlContent }} />;
-                      }
-                      return <p key={elIdx} className="text-gray-700">{el.content}</p>;
+                      return el.htmlContent ? <p key={elIdx} className="text-gray-700" dangerouslySetInnerHTML={{ __html: el.htmlContent }} /> : <p key={elIdx} className="text-gray-700">{el.content}</p>;
                     })}
                   </div>
                 )}
@@ -786,16 +738,11 @@
                           <tr key={rIdx}>
                             {row.map((cell, cIdx) => {
                               const cellText = typeof cell === 'object' ? cell.content : cell;
-                              const cellHtmlContent = typeof cell === 'object' ? cell.htmlContent : null;
-                              const sourceContent = cellHtmlContent || cellText;
-                              
+                              const cellHtml = typeof cell === 'object' ? cell.htmlContent : null;
+                              const src = cellHtml || cellText;
                               return (
                                 <td key={cIdx} className={`border border-gray-300 p-2 ${rIdx === 0 ? 'font-bold bg-gray-100' : ''}`}>
-                                  {sourceContent.split(/\n\n+/).map((para, pIdx) => (
-                                    cellHtmlContent 
-                                      ? <p key={pIdx} className={pIdx > 0 ? 'mt-2' : ''} dangerouslySetInnerHTML={{ __html: para }} />
-                                      : <p key={pIdx} className={pIdx > 0 ? 'mt-2' : ''}>{para}</p>
-                                  ))}
+                                  {src.split(/\n\n+/).map((para, pIdx) => cellHtml ? <p key={pIdx} className={pIdx > 0 ? 'mt-2' : ''} dangerouslySetInnerHTML={{ __html: para }} /> : <p key={pIdx} className={pIdx > 0 ? 'mt-2' : ''}>{para}</p>)}
                                 </td>
                               );
                             })}
@@ -814,26 +761,14 @@
                         {child.type === 'paragraph' && child.parsedContent && (
                           <div>
                             {child.parsedContent.map((el, elIdx) => {
-                              if (el.type === 'h1') return <h1 key={elIdx} className="text-xl font-bold text-gray-900 my-2">{el.content}</h1>;
-                              if (el.type === 'h2') return <h2 key={elIdx} className="text-lg font-bold text-gray-800 my-2">{el.content}</h2>;
-                              if (el.type === 'h3') return <h3 key={elIdx} className="text-base font-bold text-gray-700 my-1">{el.content}</h3>;
-                              if (el.type === 'listitem') {
-                                const indent = ((el.level || 1) - 1) * 16;
-                                if (el.htmlContent) {
-                                  return <li key={elIdx} className="ml-4" style={{ marginLeft: `${16 + indent}px` }} dangerouslySetInnerHTML={{ __html: el.htmlContent }} />;
-                                }
-                                return <li key={elIdx} className="ml-4" style={{ marginLeft: `${16 + indent}px` }}>{el.content}</li>;
-                              }
+                              if (el.type === 'h1') return <h1 key={elIdx} className="text-xl font-bold">{el.content}</h1>;
+                              if (el.type === 'h2') return <h2 key={elIdx} className="text-lg font-bold">{el.content}</h2>;
+                              if (el.type === 'h3') return <h3 key={elIdx} className="text-base font-bold">{el.content}</h3>;
+                              if (el.type === 'listitem') { const indent = ((el.level || 1) - 1) * 16; return el.htmlContent ? <li key={elIdx} style={{ marginLeft: `${16 + indent}px` }} dangerouslySetInnerHTML={{ __html: el.htmlContent }} /> : <li key={elIdx} style={{ marginLeft: `${16 + indent}px` }}>{el.content}</li>; }
                               if (el.type === 'break') return <div key={elIdx} className="h-3"></div>;
-                              if (el.htmlContent) {
-                                return <p key={elIdx} className="text-gray-600" dangerouslySetInnerHTML={{ __html: el.htmlContent }} />;
-                              }
-                              return <p key={elIdx} className="text-gray-600">{el.content}</p>;
+                              return el.htmlContent ? <p key={elIdx} className="text-gray-600" dangerouslySetInnerHTML={{ __html: el.htmlContent }} /> : <p key={elIdx} className="text-gray-600">{el.content}</p>;
                             })}
                           </div>
-                        )}
-                        {child.type === 'paragraph' && !child.parsedContent && child.content && (
-                          <p className="text-gray-600">{child.content}</p>
                         )}
                         {child.type === 'table' && child.table && (
                           <table className="text-xs border-collapse w-full mt-2">
@@ -842,16 +777,11 @@
                                 <tr key={rIdx}>
                                   {row.map((cell, cIdx2) => {
                                     const cellText = typeof cell === 'object' ? cell.content : cell;
-                                    const cellHtmlContent = typeof cell === 'object' ? cell.htmlContent : null;
-                                    const sourceContent = cellHtmlContent || cellText;
-                                    
+                                    const cellHtml = typeof cell === 'object' ? cell.htmlContent : null;
+                                    const src = cellHtml || cellText;
                                     return (
                                       <td key={cIdx2} className={`border border-gray-300 p-1 ${rIdx === 0 ? 'font-bold bg-gray-50' : ''}`}>
-                                        {sourceContent.split(/\n\n+/).map((para, pIdx) => (
-                                          cellHtmlContent
-                                            ? <p key={pIdx} className={pIdx > 0 ? 'mt-1' : ''} dangerouslySetInnerHTML={{ __html: para }} />
-                                            : <p key={pIdx} className={pIdx > 0 ? 'mt-1' : ''}>{para}</p>
-                                        ))}
+                                        {src.split(/\n\n+/).map((para, pIdx) => cellHtml ? <p key={pIdx} className={pIdx > 0 ? 'mt-1' : ''} dangerouslySetInnerHTML={{ __html: para }} /> : <p key={pIdx} className={pIdx > 0 ? 'mt-1' : ''}>{para}</p>)}
                                       </td>
                                     );
                                   })}
@@ -869,112 +799,154 @@
           </div>
         );
       };
-
+ 
       const renderSectionsTab = () => {
-        if (sections.length === 0) {
-          return (
-            <div className="p-4 text-gray-500 text-center">
-              No sections found. Paste HTML and click Preview first.
-            </div>
-          );
-        }
-        
+        if (sections.length === 0) return <div className="p-4 text-gray-500 text-center">No sections found. Paste HTML and click Preview first.</div>;
         return (
           <div className="p-4">
             <div className="flex gap-2 mb-4">
-              <button onClick={selectAll} className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded">
-                <Icon name="CheckSquare" className="w-4 h-4" /> Select All
-              </button>
-              <button onClick={deselectAll} className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded">
-                <Icon name="Square" className="w-4 h-4" /> Deselect All
-              </button>
+              <button onClick={selectAll} className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"><Icon name="CheckSquare" className="w-4 h-4" /> Select All</button>
+              <button onClick={deselectAll} className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"><Icon name="Square" className="w-4 h-4" /> Deselect All</button>
             </div>
             <div className="border rounded max-h-80 overflow-y-auto">
               {sections.map((section) => (
-                <div
-                  key={section.id}
-                  className={`flex items-center gap-2 p-2 hover:bg-gray-50 border-b last:border-b-0 cursor-pointer ${!section.selected ? 'opacity-50' : ''}`}
-                  style={{ paddingLeft: `${(section.level - 1) * 20 + 8}px` }}
-                  onClick={() => toggleSection(section.id)}
-                >
-                  <input type="checkbox" checked={section.selected} onChange={() => toggleSection(section.id)} className="w-4 h-4 rounded" onClick={(e) => e.stopPropagation()} />
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${section.level === 1 ? 'bg-blue-100 text-blue-700' : section.level === 2 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                    H{section.level}
-                  </span>
-                  <span className={`text-sm ${section.level === 1 ? 'font-bold' : section.level === 2 ? 'font-semibold' : ''}`}>
-                    {section.title}
-                  </span>
+                <div key={section.id} className={`flex items-center gap-2 p-2 hover:bg-gray-50 border-b last:border-b-0 cursor-pointer ${!section.selected ? 'opacity-50' : ''}`} style={{ paddingLeft: `${(section.level - 1) * 20 + 8}px` }} onClick={() => toggleSection(section.id)}>
+                  <input type="checkbox" checked={section.selected} onChange={() => toggleSection(section.id)} className="w-4 h-4 rounded" onClick={e => e.stopPropagation()} />
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${section.level === 1 ? 'bg-blue-100 text-blue-700' : section.level === 2 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>H{section.level}</span>
+                  <span className={`text-sm ${section.level === 1 ? 'font-bold' : section.level === 2 ? 'font-semibold' : ''}`}>{section.title}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-3 text-sm text-gray-500">
-              {sections.filter(s => s.selected).length} of {sections.length} sections selected
-            </div>
+            <div className="mt-3 text-sm text-gray-500">{sections.filter(s => s.selected).length} of {sections.length} sections selected</div>
           </div>
         );
       };
-
+ 
+      const tabs = [
+        { id: 'input', label: 'Input HTML', icon: 'Code' },
+        { id: 'sections', label: 'Sections', icon: 'List', requiresContent: true },
+        { id: 'preview', label: 'Preview', icon: 'Eye', requiresContent: true },
+        { id: 'settings', label: 'Settings', icon: 'Settings' },
+      ];
+ 
       return (
         <div className="min-h-screen bg-gray-100 p-4">
           <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-lg shadow-lg p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <Icon name="FileText" className="w-7 h-7 text-blue-600" />
-                <h1 className="text-xl font-bold text-gray-800">Seismic HTML to Word Converter</h1>
+ 
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <Icon name="FileText" className="w-7 h-7 text-blue-600" />
+                  <h1 className="text-xl font-bold text-gray-800">Seismic HTML to Word Converter</h1>
+                </div>
+                {hasWebhook ? (
+                  <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
+                    <Icon name="Wifi" className="w-3 h-3" /> SharePoint ready
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded cursor-pointer" onClick={() => setActiveTab('settings')}>
+                    <Icon name="AlertTriangle" className="w-3 h-3" /> SharePoint not configured
+                  </span>
+                )}
               </div>
-              
+ 
+              {/* Tabs */}
               <div className="flex border-b mb-4">
-                <button onClick={() => setActiveTab('input')} className={`px-4 py-2 text-sm font-medium border-b-2 transition ${activeTab === 'input' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                  Input HTML
-                </button>
-                <button onClick={() => { if (docContent) setActiveTab('sections'); }} className={`px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1 ${activeTab === 'sections' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'} ${!docContent ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <Icon name="List" className="w-4 h-4" /> Sections
-                </button>
-                <button onClick={() => { if (docContent) { setShowPreview(true); setActiveTab('preview'); } }} className={`px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1 ${activeTab === 'preview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'} ${!docContent ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                  <Icon name="Eye" className="w-4 h-4" /> Preview
-                </button>
+                {tabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      if (tab.requiresContent && !docContent) return;
+                      if (tab.id === 'preview') { setShowPreview(true); }
+                      setActiveTab(tab.id);
+                    }}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1
+                      ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}
+                      ${tab.requiresContent && !docContent ? 'opacity-50 cursor-not-allowed' : ''}
+                      ${tab.id === 'settings' ? 'ml-auto' : ''}`}
+                  >
+                    <Icon name={tab.icon} className="w-4 h-4" /> {tab.label}
+                    {tab.id === 'settings' && !hasWebhook && <span className="w-2 h-2 rounded-full bg-amber-400 ml-1"></span>}
+                  </button>
+                ))}
               </div>
-
+ 
+              {/* Tab content */}
               {activeTab === 'input' && (
                 <textarea
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={e => setInputText(e.target.value)}
                   placeholder="Paste your Seismic HTML here (use the bookmarklet to copy it)..."
                   className="w-full h-48 p-3 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               )}
-              
               {activeTab === 'sections' && renderSectionsTab()}
               {activeTab === 'preview' && renderPreview()}
-              
-              <div className="flex gap-3 mt-4">
-                <button onClick={handlePreview} disabled={!inputText.trim()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition">
-                  <Icon name="Eye" className="w-4 h-4" /> Preview
-                </button>
-                <button onClick={handleCopyForWord} disabled={!inputText.trim()} className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition">
-                  <Icon name="ClipboardPaste" className="w-4 h-4" /> Copy for Word
-                </button>
-                <button onClick={handleClear} className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
-                  <Icon name="Trash2" className="w-4 h-4" /> Clear
-                </button>
-              </div>
-
+              {activeTab === 'settings' && <SettingsTab onUrlSaved={() => setHasWebhook(!!loadWebhookUrl())} />}
+ 
+              {/* Page title field (shown when content is parsed) */}
+              {docContent && activeTab !== 'settings' && (
+                <div className="mt-4">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Page title (used as SharePoint filename)</label>
+                  <input
+                    type="text"
+                    value={pageTitle}
+                    onChange={e => setPageTitle(e.target.value)}
+                    placeholder="e.g. Advanced Parts – Dealer Overview"
+                    className="w-full p-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  {pageTitle && <p className="text-xs text-gray-400 mt-1">Will save as: <code>{slugify(pageTitle)}.md</code></p>}
+                </div>
+              )}
+ 
+              {/* Action buttons */}
+              {activeTab !== 'settings' && (
+                <div className="flex flex-wrap gap-3 mt-4">
+                  <button onClick={handlePreview} disabled={!inputText.trim()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition">
+                    <Icon name="Eye" className="w-4 h-4" /> Preview
+                  </button>
+                  <button onClick={handleCopyForWord} disabled={!inputText.trim()} className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition">
+                    <Icon name="ClipboardPaste" className="w-4 h-4" /> Copy for Word
+                  </button>
+                  <button
+                    onClick={handleSaveToSharePoint}
+                    disabled={!inputText.trim() || isSaving}
+                    className={`flex items-center gap-2 px-4 py-2 text-white rounded transition
+                      ${hasWebhook ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 hover:bg-gray-500'}
+                      disabled:opacity-60 disabled:cursor-not-allowed`}
+                    title={!hasWebhook ? 'Configure webhook URL in Settings first' : ''}
+                  >
+                    <Icon name={isSaving ? 'Loader' : 'Upload'} className="w-4 h-4" />
+                    {isSaving ? 'Saving...' : 'Save to SharePoint'}
+                  </button>
+                  <button onClick={handleClear} className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition ml-auto">
+                    <Icon name="Trash2" className="w-4 h-4" /> Clear
+                  </button>
+                </div>
+              )}
+ 
+              {/* Status message */}
               {status.message && (
                 <div className={`flex items-center gap-2 p-3 rounded mt-4 ${status.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                   <Icon name={status.type === 'error' ? 'AlertCircle' : 'CheckCircle'} className="w-5 h-5" />
                   <span className="text-sm">{status.message}</span>
                 </div>
               )}
-
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
-                <strong>Tip:</strong> Use the bookmarklet on a Seismic page to copy the HTML, then this page will auto-paste it!
-              </div>
+ 
+              {/* Tip */}
+              {activeTab === 'input' && (
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+                  <strong>Tip:</strong> Use the bookmarklet on a Seismic page to copy the HTML, then this page will auto-paste it!
+                </div>
+              )}
+ 
             </div>
           </div>
         </div>
       );
     }
-
+ 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<SeismicConverter />);
   </script>
