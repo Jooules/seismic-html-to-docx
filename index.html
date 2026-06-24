@@ -6,19 +6,19 @@
   <title>Seismic HTML to Word Converter</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.min.js"></script>
   <style>
     .lucide-icon { display: inline-block; vertical-align: middle; }
   </style>
 </head>
 <body>
   <div id="root"></div>
- 
+
   <script type="text/babel">
     const { useState, useCallback, useMemo, useEffect, useRef } = React;
- 
+
     const Icon = ({ name, className = "w-4 h-4" }) => {
       const ref = useRef(null);
       useEffect(() => {
@@ -31,12 +31,12 @@
       }, [name, className]);
       return <span ref={ref} className="inline-flex items-center" />;
     };
- 
+
     // ─── Markdown converter ───────────────────────────────────────────────────
- 
+
     const contentToMarkdown = (content) => {
       const lines = [];
- 
+
       const renderParsedContent = (parsedContent) => {
         if (!parsedContent) return;
         parsedContent.forEach(el => {
@@ -54,7 +54,7 @@
           else if (el.content) lines.push(el.content);
         });
       };
- 
+
       const renderTable = (tableData) => {
         if (!tableData || tableData.length === 0) return;
         tableData.forEach((row, rIdx) => {
@@ -69,7 +69,7 @@
         });
         lines.push('');
       };
- 
+
       const renderItem = (item) => {
         switch (item.type) {
           case 'divider':
@@ -89,18 +89,18 @@
             break;
         }
       };
- 
+
       content.forEach(item => renderItem(item));
       return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
     };
- 
+
     const slugify = (text) =>
       text.toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '');
- 
+
     const detectPageTitle = (content) => {
       for (const item of content) {
         if (item.type === 'divider' && item.title) return item.title;
@@ -113,9 +113,9 @@
       }
       return 'Untitled Page';
     };
- 
+
     // ─── Seismic HTML parser (unchanged) ─────────────────────────────────────
- 
+
     const parseSeismicHtml = (html) => {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
@@ -123,7 +123,7 @@
       const widgets = doc.querySelectorAll('[data-testid]');
       const accordionMap = new Map();
       const widgetToAccordion = new Map();
- 
+
       widgets.forEach((widget) => {
         const testId = widget.getAttribute('data-testid');
         if (testId === 'page.accordion') {
@@ -147,12 +147,12 @@
           if (parentAccordion && accordionMap.has(parentAccordion)) widgetToAccordion.set(widget, parentAccordion);
         }
       });
- 
+
       widgets.forEach((widget, idx) => {
         const testId = widget.getAttribute('data-testid');
         if (testId === 'seismic-page-richContent') return;
         const parentAccordion = widgetToAccordion.get(widget);
- 
+
         if (testId === 'page.paragraph') {
           const richContent = widget.querySelector('.seismic-page-RichTextView-content');
           if (richContent) {
@@ -182,16 +182,16 @@
           content.push({ type: 'divider', id: idx, title, level });
         }
       });
- 
+
       return content;
     };
- 
+
     const parseParagraphContent = (element) => {
       const results = [];
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = element.innerHTML;
       const capturedTexts = new Set();
- 
+
       const headingData = [];
       tempDiv.querySelectorAll('h1, h2, h3').forEach(heading => {
         const tagName = heading.tagName.toLowerCase();
@@ -200,7 +200,7 @@
         headingData.push({ type: tagName, content: text, element: heading });
         capturedTexts.add(text);
       });
- 
+
       tempDiv.querySelectorAll('span[style*="font-size"]').forEach(span => {
         const fontSize = span.style.fontSize;
         const size = parseInt(fontSize);
@@ -213,7 +213,7 @@
           if (isBold) { headingData.push({ type: 'h3', content: text, element: span }); capturedTexts.add(text); }
         }
       });
- 
+
       const listItems = [];
       tempDiv.querySelectorAll('li').forEach(li => {
         let level = 0;
@@ -234,7 +234,7 @@
           capturedTexts.add(text);
         }
       });
- 
+
       const textBlocks = [];
       tempDiv.querySelectorAll('div').forEach((div, idx) => {
         if (div.closest('ul, ol') || div.closest('h1, h2, h3, h4, h5, h6, .seismic-page-anchor-container')) return;
@@ -265,7 +265,7 @@
         textBlocks.push({ type: 'text', content: text, htmlContent: hasInlineFormatting ? htmlContent : null, element: div, fontSize });
         capturedTexts.add(text);
       });
- 
+
       const inlineElements = [];
       Array.from(tempDiv.childNodes).forEach((node) => {
         if (node.nodeType === Node.ELEMENT_NODE && (node.tagName === 'DIV' || /^H[1-6]$/.test(node.tagName) || node.tagName === 'UL' || node.tagName === 'OL')) return;
@@ -286,7 +286,7 @@
         inlineElements.push({ type: textType, content: text, element: node });
         capturedTexts.add(text);
       });
- 
+
       const allContent = [...headingData, ...listItems, ...textBlocks, ...inlineElements];
       allContent.sort((a, b) => {
         const position = a.element.compareDocumentPosition(b.element);
@@ -294,7 +294,7 @@
         if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
         return 0;
       });
- 
+
       const finalResults = allContent.map(item => ({ type: item.type, content: item.content, htmlContent: item.htmlContent || null, fontSize: item.fontSize || null, level: item.level || null }));
       const deduped = [];
       finalResults.forEach((el) => {
@@ -306,10 +306,10 @@
         if (!el.content || el.content.length === 0) return;
         if (!deduped.some(d => d.content === el.content)) deduped.push(el);
       });
- 
+
       return { parsedContent: deduped, content: element.textContent.trim() };
     };
- 
+
     const parseTable = (table) => {
       const rows = [];
       table.querySelectorAll('tr').forEach(tr => {
@@ -330,7 +330,7 @@
       });
       return rows;
     };
- 
+
     const extractSections = (content) => {
       const sections = [];
       let sectionId = 0;
@@ -347,7 +347,7 @@
       });
       return sections;
     };
- 
+
     const generateHtmlForWord = (content) => {
       const headerStyles = {
         h1: "mso-style-name:'Heading 1'; mso-outline-level:1; font-size:28px; color:#1a202c; margin:24px 0 12px 0; font-weight:bold;",
@@ -359,7 +359,7 @@
       const spacerParagraph = '<p style="mso-style-name:\'Normal\'; margin:0; line-height:100%;"><span style="font-size:11pt;">&nbsp;</span></p>';
       const endsWithBreak = (pc) => pc && pc.length > 0 && pc[pc.length - 1].type === 'break';
       const startsWithHeading = (pc) => pc && pc.length > 0 && ['h1','h2','h3'].includes(pc[0].type);
- 
+
       const renderParsedContent = (parsedContent) => {
         let html = ''; let currentListLevel = 0;
         parsedContent.forEach((el) => {
@@ -384,7 +384,7 @@
         while (currentListLevel > 0) { html += '</ul>'; currentListLevel--; }
         return html;
       };
- 
+
       const renderTable = (tableData) => {
         if (!tableData?.length) return '';
         let html = `<table ${tableStyle}>`;
@@ -399,7 +399,7 @@
         });
         return html + '</table>';
       };
- 
+
       const renderContent = (item) => {
         let html = '';
         switch (item.type) {
@@ -416,7 +416,7 @@
         }
         return html;
       };
- 
+
       const needsSpacerBetween = (prevItem, currentItem) => {
         if (!prevItem) return false;
         if (currentItem.type === 'divider' || currentItem.type === 'accordion') return false;
@@ -427,7 +427,7 @@
         if (prevItem.type === 'table' && currentItem.type === 'table') return true;
         return false;
       };
- 
+
       let fullHtml = `<html><head><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;max-width:100%;}</style></head><body>`;
       content.forEach((item, idx) => {
         if (needsSpacerBetween(idx > 0 ? content[idx - 1] : null, item)) fullHtml += spacerParagraph;
@@ -436,30 +436,30 @@
       fullHtml += '</body></html>';
       return fullHtml;
     };
- 
+
     // ─── Settings storage ─────────────────────────────────────────────────────
- 
+
     const STORAGE_KEY = 'seismic_sharepoint_webhook';
- 
+
     const loadWebhookUrl = () => {
       try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
     };
- 
+
     const saveWebhookUrl = (url) => {
       try { localStorage.setItem(STORAGE_KEY, url); return true; } catch { return false; }
     };
- 
+
     const clearWebhookUrl = () => {
       try { localStorage.removeItem(STORAGE_KEY); return true; } catch { return false; }
     };
- 
+
     // ─── Settings tab ─────────────────────────────────────────────────────────
- 
+
     const SettingsTab = ({ onUrlSaved }) => {
       const [urlInput, setUrlInput] = useState(loadWebhookUrl);
       const [saved, setSaved] = useState(!!loadWebhookUrl());
       const [settingsStatus, setSettingsStatus] = useState({ type: '', message: '' });
- 
+
       const handleSave = () => {
         const trimmed = urlInput.trim();
         if (!trimmed) { setSettingsStatus({ type: 'error', message: 'Please paste a Power Automate webhook URL first.' }); return; }
@@ -472,7 +472,7 @@
           setSettingsStatus({ type: 'error', message: 'Failed to save — localStorage may be blocked.' });
         }
       };
- 
+
       const handleClear = () => {
         clearWebhookUrl();
         setUrlInput('');
@@ -480,13 +480,13 @@
         setSettingsStatus({ type: 'success', message: 'Webhook URL cleared.' });
         onUrlSaved && onUrlSaved();
       };
- 
+
       return (
         <div className="p-4 space-y-4">
           <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
             <strong>One-time setup:</strong> Paste your Power Automate webhook URL below. It will be stored in this browser only and never uploaded anywhere.
           </div>
- 
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Power Automate webhook URL</label>
             <div className="flex gap-2">
@@ -499,7 +499,7 @@
               />
             </div>
           </div>
- 
+
           <div className="flex gap-2">
             <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition text-sm">
               <Icon name="Save" className="w-4 h-4" /> Save URL
@@ -510,28 +510,28 @@
               </button>
             )}
           </div>
- 
+
           {saved && (
             <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">
               <Icon name="CheckCircle" className="w-4 h-4" />
               Webhook URL is saved — "Save to SharePoint" is ready to use.
             </div>
           )}
- 
+
           {!saved && (
             <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
               <Icon name="AlertTriangle" className="w-4 h-4" />
               No webhook URL saved — "Save to SharePoint" will not work until this is set.
             </div>
           )}
- 
+
           {settingsStatus.message && (
             <div className={`flex items-center gap-2 p-3 rounded text-sm ${settingsStatus.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
               <Icon name={settingsStatus.type === 'error' ? 'AlertCircle' : 'CheckCircle'} className="w-4 h-4" />
               {settingsStatus.message}
             </div>
           )}
- 
+
           <div className="border-t pt-4 mt-4">
             <p className="text-xs text-gray-500 font-medium mb-2">Power Automate flow — expected JSON payload:</p>
             <pre className="text-xs bg-gray-50 border rounded p-3 overflow-x-auto text-gray-700">{`{
@@ -546,13 +546,13 @@
         </div>
       );
     };
- 
+
     // ─── Page title field (collapsed by default) ──────────────────────────────
- 
+
     const PageTitleField = ({ pageTitle, setPageTitle }) => {
       const [expanded, setExpanded] = useState(false);
       const fileName = slugify(pageTitle || 'untitled-page') + '.md';
- 
+
       return (
         <div className="mt-4 bg-gray-50 border border-gray-200 rounded px-3 py-2">
           <div className="flex items-center justify-between">
@@ -583,9 +583,9 @@
         </div>
       );
     };
- 
+
     // ─── Main component ───────────────────────────────────────────────────────
- 
+
     function SeismicConverter() {
       const [inputText, setInputText] = useState('');
       const [docContent, setDocContent] = useState(null);
@@ -596,7 +596,7 @@
       const [pageTitle, setPageTitle] = useState('');
       const [isSaving, setIsSaving] = useState(false);
       const [hasWebhook, setHasWebhook] = useState(!!loadWebhookUrl());
- 
+
       useEffect(() => {
         const autoPaste = async () => {
           try {
@@ -609,7 +609,7 @@
         };
         setTimeout(autoPaste, 500);
       }, []);
- 
+
       // Silently parse whenever inputText changes so the filename bar appears immediately
       useEffect(() => {
         const trimmed = inputText.trim();
@@ -622,7 +622,7 @@
           setPageTitle(prev => prev || detectPageTitle(content));
         } catch {}
       }, [inputText]);
- 
+
       const parseInput = useCallback(() => {
         try {
           const trimmed = inputText.trim();
@@ -642,7 +642,7 @@
           setDocContent(null); setSections([]); return null;
         }
       }, [inputText]);
- 
+
       const toggleSection = useCallback((sectionId) => {
         setSections(prev => {
           const updated = [...prev];
@@ -656,10 +656,10 @@
           return updated;
         });
       }, []);
- 
+
       const selectAll = useCallback(() => setSections(prev => prev.map(s => ({ ...s, selected: true }))), []);
       const deselectAll = useCallback(() => setSections(prev => prev.map(s => ({ ...s, selected: false }))), []);
- 
+
       const getFilteredContent = useCallback(() => {
         if (!docContent) return null;
         if (sections.length === 0) return docContent;
@@ -678,17 +678,17 @@
           return owner.selected;
         });
       }, [docContent, sections]);
- 
+
       const handlePreview = useCallback(() => {
         const content = docContent || parseInput();
         if (content) { setShowPreview(true); setActiveTab('preview'); }
       }, [docContent, parseInput]);
- 
+
       const handleClear = useCallback(() => {
         setInputText(''); setDocContent(null); setSections([]); setShowPreview(false);
         setActiveTab('input'); setStatus({ type: '', message: '' }); setPageTitle('');
       }, []);
- 
+
       const handleCopyForWord = useCallback(() => {
         let content = getFilteredContent();
         if (!content) { content = parseInput(); if (!content) return; }
@@ -702,7 +702,7 @@
           }).catch(err => setStatus({ type: 'error', message: 'Failed to copy: ' + err.message }));
         });
       }, [getFilteredContent, parseInput]);
- 
+
       const handleSaveToSharePoint = useCallback(async () => {
         const webhookUrl = loadWebhookUrl();
         if (!webhookUrl) {
@@ -710,14 +710,14 @@
           setActiveTab('settings');
           return;
         }
- 
+
         let content = getFilteredContent();
         if (!content) { content = parseInput(); if (!content) return; }
- 
+
         const markdown = contentToMarkdown(content);
         const resolvedTitle = pageTitle.trim() || 'untitled-page';
         const fileName = slugify(resolvedTitle) + '.md';
- 
+
         const payload = {
           pageTitle: resolvedTitle,
           fileName,
@@ -725,17 +725,17 @@
           exportedBy: 'browser',
           exportedAt: new Date().toISOString(),
         };
- 
+
         setIsSaving(true);
         setStatus({ type: '', message: '' });
- 
+
         try {
           const response = await fetch(webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
- 
+
           if (response.ok || response.status === 202) {
             setStatus({ type: 'success', message: `Saved to SharePoint as "${fileName}"` });
           } else {
@@ -747,9 +747,9 @@
           setIsSaving(false);
         }
       }, [getFilteredContent, parseInput, pageTitle]);
- 
+
       const filteredContent = useMemo(() => getFilteredContent(), [getFilteredContent]);
- 
+
       const renderPreview = () => {
         const content = filteredContent || docContent;
         if (!content || !showPreview) return null;
@@ -843,7 +843,7 @@
           </div>
         );
       };
- 
+
       const renderSectionsTab = () => {
         if (sections.length === 0) return <div className="p-4 text-gray-500 text-center">No sections found. Paste HTML and click Preview first.</div>;
         return (
@@ -865,19 +865,19 @@
           </div>
         );
       };
- 
+
       const tabs = [
         { id: 'input', label: 'Input HTML', icon: 'Code' },
         { id: 'sections', label: 'Sections', icon: 'List', requiresContent: true },
         { id: 'preview', label: 'Preview', icon: 'Eye', requiresContent: true },
         { id: 'settings', label: 'Settings', icon: 'Settings' },
       ];
- 
+
       return (
         <div className="min-h-screen bg-gray-100 p-4">
           <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-lg shadow-lg p-5">
- 
+
               {/* Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -894,7 +894,7 @@
                   </span>
                 )}
               </div>
- 
+
               {/* Tabs */}
               <div className="flex border-b mb-4">
                 {tabs.map(tab => (
@@ -915,7 +915,7 @@
                   </button>
                 ))}
               </div>
- 
+
               {/* Tab content */}
               {activeTab === 'input' && (
                 <textarea
@@ -928,12 +928,12 @@
               {activeTab === 'sections' && renderSectionsTab()}
               {activeTab === 'preview' && renderPreview()}
               {activeTab === 'settings' && <SettingsTab onUrlSaved={() => setHasWebhook(!!loadWebhookUrl())} />}
- 
+
               {/* Page title display (shown when content is parsed) */}
               {docContent && activeTab !== 'settings' && (
                 <PageTitleField pageTitle={pageTitle} setPageTitle={setPageTitle} />
               )}
- 
+
               {/* Action buttons */}
               {activeTab !== 'settings' && (
                 <div className="flex flex-wrap gap-3 mt-4">
@@ -959,7 +959,7 @@
                   </button>
                 </div>
               )}
- 
+
               {/* Status message */}
               {status.message && (
                 <div className={`flex items-center gap-2 p-3 rounded mt-4 ${status.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
@@ -967,20 +967,20 @@
                   <span className="text-sm">{status.message}</span>
                 </div>
               )}
- 
+
               {/* Tip */}
               {activeTab === 'input' && (
                 <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
                   <strong>Tip:</strong> Use the bookmarklet on a Seismic page to copy the HTML, then this page will auto-paste it!
                 </div>
               )}
- 
+
             </div>
           </div>
         </div>
       );
     }
- 
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<SeismicConverter />);
   </script>
